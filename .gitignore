@@ -1,0 +1,16 @@
+# secrets & runtime
+**/config.env
+.env
+*.env
+!*.sample
+
+# rclone logs / output
+**/logs/
+*.log
+*.out
+
+# os
+.DS_Store
+
+# claude code harness state
+.claude/
