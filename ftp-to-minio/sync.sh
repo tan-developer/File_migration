@@ -21,7 +21,17 @@
 
 set -euo pipefail
 
-: "${FTP_HOST:?set FTP_HOST}"
+# Auto-load config.env (next to this script) unless already provided in the
+# environment. Lets you just run ./sync.sh without sourcing first.
+# Override path with CONFIG_FILE=/path/to/file ./sync.sh
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+config_file="${CONFIG_FILE:-$script_dir/config.env}"
+if [ -z "${FTP_HOST:-}" ] && [ -f "$config_file" ]; then
+  echo "loading config: $config_file"
+  set -a; . "$config_file"; set +a
+fi
+
+: "${FTP_HOST:?set FTP_HOST (in config.env next to sync.sh, or export it)}"
 : "${FTP_USER:?set FTP_USER}"
 : "${FTP_PASS:?set FTP_PASS}"
 : "${FTP_PATH:=/}"
