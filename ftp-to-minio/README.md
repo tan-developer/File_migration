@@ -46,6 +46,27 @@ set -a; source ./config.env; set +a
 ./sync.sh                # real run
 ```
 
+### Progress (speed + file count)
+
+On an interactive terminal `sync.sh` shows a live rclone progress bar — transfer
+**speed**, ETA, bytes done, and **files transferred / total**. Under
+`nohup`/cron (no TTY) it instead writes the same stats to the log every
+`STATS_INTERVAL` (default `15s`); follow with `tail -f logs/sync-*.log`. Each
+block looks like:
+
+```
+Transferred:   12.34 GiB / 480 GiB, 3%, 78.5 MiB/s, ETA 1h42m   <- speed
+Transferred:         9214 / 2148301, 0%                          <- files
+```
+
+### Single-instance lock
+
+`sync.sh` takes an exclusive `flock` (`/tmp/ftp-to-minio.lock`, override with
+`LOCK_FILE`). A second run while one is active **exits immediately with code 99**
+— no two rclone processes hammer the same FTP + bucket. The lock is held by an
+open fd, so the kernel frees it automatically if the process dies (no stale
+locks). To queue instead of fail-fast, run with `SYNC_WAIT=1 ./sync.sh`.
+
 ### Long jobs (hours/days for millions of files)
 
 Run detached so an SSH drop doesn't kill it:

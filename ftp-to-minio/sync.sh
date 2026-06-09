@@ -9,6 +9,10 @@
 #   ./sync.sh                                # run
 #   ./sync.sh --dry-run                      # preview, transfer nothing
 #
+# Single-instance: a flock guards against concurrent runs. A second invocation
+# exits immediately (code 99). Set SYNC_WAIT=1 to block & queue instead.
+# Lock file: ${LOCK_FILE:-/tmp/ftp-to-minio.lock} (stale locks auto-released).
+#
 # Required env (set in config.env, NOT committed):
 #   FTP_HOST FTP_USER FTP_PASS FTP_PATH
 #   MINIO_ENDPOINT MINIO_ACCESS_KEY MINIO_SECRET_KEY BUCKET
@@ -37,6 +41,22 @@ set -euo pipefail
 : "${S3_CONCURRENCY:=4}"
 
 command -v rclone >/dev/null || { echo "rclone not installed. See README."; exit 1; }
+command -v flock  >/dev/null || { echo "flock not installed (util-linux)."; exit 1; }
+
+# --- single-instance lock -------------------------------------------------
+# Hold an exclusive flock on fd 200 for the script's lifetime. The kernel
+# releases it when the process exits (even on crash/kill) -> no stale lock.
+LOCK_FILE="${LOCK_FILE:-/tmp/ftp-to-minio.lock}"
+exec 200>"$LOCK_FILE"
+if [ "${SYNC_WAIT:-0}" = "1" ]; then
+  flock 200                                       # block & queue until free
+else
+  flock -n 200 || {                               # fail fast if already held
+    echo "another sync is already running (lock: $LOCK_FILE). exit." >&2
+    exit 99
+  }
+fi
+# -------------------------------------------------------------------------
 
 ts="$(date +%Y%m%d-%H%M%S)"
 log_dir="${LOG_DIR:-./logs}"
@@ -66,20 +86,30 @@ export RCLONE_CONFIG_MINIO_SECRET_ACCESS_KEY="$MINIO_SECRET_KEY"
 export RCLONE_CONFIG_MINIO_ENDPOINT="$MINIO_ENDPOINT"
 export RCLONE_CONFIG_MINIO_REGION="$MINIO_REGION"
 
-rclone copy "ftp:${FTP_PATH}" "$dst" \
-  --transfers "$TRANSFERS" \
-  --checkers "$CHECKERS" \
-  --size-only \
-  --s3-chunk-size "$S3_CHUNK_SIZE" \
-  --s3-upload-concurrency "$S3_CONCURRENCY" \
-  --s3-no-check-bucket \
-  --retries 3 \
-  --low-level-retries 20 \
-  --stats 30s \
-  --stats-one-line \
-  --log-file "$log_file" \
-  --log-level INFO \
-  "$@"
+# Progress / stats:
+#  - --stats prints a periodic block showing transfer SPEED and FILE COUNTS
+#    (e.g. "Transferred: 1.2 GiB / 5 GiB, 10 MiB/s" and "120 / 5000" files).
+#  - on an interactive terminal we also add --progress for a live updating bar
+#    (speed, ETA, current files). In detached/cron runs the stats go to the log.
+: "${STATS_INTERVAL:=15s}"
+args=(
+  --transfers "$TRANSFERS"
+  --checkers "$CHECKERS"
+  --size-only
+  --s3-chunk-size "$S3_CHUNK_SIZE"
+  --s3-upload-concurrency "$S3_CONCURRENCY"
+  --s3-no-check-bucket
+  --retries 3
+  --low-level-retries 20
+  --stats "$STATS_INTERVAL"
+  --stats-log-level NOTICE
+  --log-file "$log_file"
+  --log-level INFO
+)
+# live bar only when stdout is a real terminal (skip under nohup/cron)
+[ -t 1 ] && args+=(--progress)
+
+rclone copy "ftp:${FTP_PATH}" "$dst" "${args[@]}" "$@"
 
 echo "done. summary tail:"
 tail -n 3 "$log_file"
