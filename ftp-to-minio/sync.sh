@@ -44,11 +44,23 @@ fi
 : "${BUCKET:?set BUCKET}"
 : "${PREFIX:=}"
 
-: "${TRANSFERS:=16}"
-: "${CHECKERS:=32}"
-: "${FTP_CONCURRENCY:=8}"
+: "${TRANSFERS:=8}"
+: "${CHECKERS:=8}"
+: "${FTP_CONCURRENCY:=0}"   # 0 = unlimited; else MUST exceed TRANSFERS+CHECKERS
 : "${S3_CHUNK_SIZE:=64M}"
 : "${S3_CONCURRENCY:=4}"
+
+# rclone's FTP backend opens one connection per transfer AND per checker. If the
+# connection cap (FTP_CONCURRENCY) is <= transfers+checkers, checkers grab every
+# connection and wait for transfer connections that can never open -> deadlock
+# (symptom: 0 B/s on every file while listing worked). Auto-raise to stay safe.
+if [ "$FTP_CONCURRENCY" != "0" ]; then
+  need=$(( TRANSFERS + CHECKERS + 1 ))
+  if [ "$FTP_CONCURRENCY" -le "$(( TRANSFERS + CHECKERS ))" ]; then
+    echo "WARN: FTP_CONCURRENCY=$FTP_CONCURRENCY <= transfers+checkers=$((TRANSFERS+CHECKERS)); raising to $need to avoid FTP deadlock" >&2
+    FTP_CONCURRENCY="$need"
+  fi
+fi
 
 command -v rclone >/dev/null || { echo "rclone not installed. See README."; exit 1; }
 command -v flock  >/dev/null || { echo "flock not installed (util-linux)."; exit 1; }

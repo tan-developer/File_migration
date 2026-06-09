@@ -21,9 +21,13 @@ BUCKET=migrated
 PREFIX=                  # optional sub-path inside bucket, e.g. ftp/
 
 # --- Tuning (defaults sane for >500GB / millions of files) ---
-TRANSFERS=16
-CHECKERS=32
-FTP_CONCURRENCY=8        # raise carefully; many FTP servers cap connections per IP
+TRANSFERS=8
+CHECKERS=8
+# FTP connection cap. 0 = unlimited. If non-zero it MUST exceed
+# TRANSFERS+CHECKERS or rclone's FTP backend DEADLOCKS (0 B/s, stuck).
+# Script auto-raises a too-low value. Many FTP servers cap per-IP, so if you
+# get "too many connections", set a number like 24 instead of 0.
+FTP_CONCURRENCY=0
 S3_CHUNK_SIZE=64M        # RAM budget ~= CHUNK * S3_CONCURRENCY * TRANSFERS
 S3_CONCURRENCY=4
 LOG_DIR=./logs
