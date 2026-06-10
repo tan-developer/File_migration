@@ -10,7 +10,16 @@ FTP_PORT=21
 FTP_USER=ftpuser
 FTP_PASS=REPLACE_ME
 FTP_TLS=false            # true = explicit FTPS (recommended if supported)
-FTP_PATH=/              # path on FTP to migrate
+FTP_PATH=/              # single path on FTP to migrate (default)
+
+# Migrate MANY paths in one run (optional). With >1 path, each source is
+# mirrored under the dest at its own subpath so trees never collide.
+#   FTP_PATHS="/2024 /2025 /archive"      # inline, whitespace-separated
+# For paths containing spaces, use a file instead (one path per line, # = comment):
+#   PATHS_FILE=./paths.txt
+# Precedence: PATHS_FILE > FTP_PATHS > FTP_PATH.
+#FTP_PATHS=
+#PATHS_FILE=
 
 # --- local folder destination (only for ftp-to-folder.sh) ---
 DEST_DIR=/data/ftp-mirror

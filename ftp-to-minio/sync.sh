@@ -136,7 +136,39 @@ args=(
 # live bar only when stdout is a real terminal (skip under nohup/cron)
 [ -t 1 ] && args+=(--progress)
 
-rclone copy "ftp:${FTP_PATH}" "$dst" "${args[@]}" "$@"
+# --- source path list ----------------------------------------------------
+# Migrate one OR many FTP paths in a single locked run. Precedence:
+#   PATHS_FILE (one path per line, # comments allowed)
+#   > FTP_PATHS (inline, whitespace/newline separated)
+#   > FTP_PATH  (single path, default)
+# With >1 path each source is mirrored UNDER the dest at its own subpath, so
+# trees never collide (e.g. ftp:/a -> minio:bucket/prefix/a). A single path
+# keeps the original flat behavior (contents land directly at the dest).
+paths=()
+if [ -n "${PATHS_FILE:-}" ] && [ -f "$PATHS_FILE" ]; then
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%%#*}"                       # strip inline comments
+    line="${line#"${line%%[![:space:]]*}"}"  # ltrim
+    line="${line%"${line##*[![:space:]]}"}"  # rtrim
+    [ -n "$line" ] && paths+=("$line")
+  done < "$PATHS_FILE"
+elif [ -n "${FTP_PATHS:-}" ]; then
+  read -r -a paths <<< "$FTP_PATHS"
+else
+  paths=("$FTP_PATH")
+fi
+[ "${#paths[@]}" -gt 0 ] || { echo "no FTP paths to migrate" >&2; exit 1; }
+multi=0; [ "${#paths[@]}" -gt 1 ] && multi=1
+
+for p in "${paths[@]}"; do
+  this_dst="$dst"
+  if [ "$multi" = 1 ]; then
+    sub="${p#/}"; sub="${sub%/}"
+    [ -n "$sub" ] && this_dst="$dst/$sub"
+  fi
+  echo ">> ftp:${p}  ->  ${this_dst}"
+  rclone copy "ftp:${p}" "$this_dst" "${args[@]}" "$@"
+done
 
 echo "done. summary tail:"
 tail -n 3 "$log_file"
