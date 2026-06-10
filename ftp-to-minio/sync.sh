@@ -21,12 +21,12 @@
 
 set -euo pipefail
 
-# Auto-load config.env (next to this script) unless already provided in the
-# environment. Lets you just run ./sync.sh without sourcing first.
-# Override path with CONFIG_FILE=/path/to/file ./sync.sh
+# Always load config.env (next to this script; authoritative). Lets you just
+# run ./sync.sh without sourcing, and avoids stale exported vars from an earlier
+# `source` masking newly-added keys. Override path with CONFIG_FILE=/path ./sync.sh
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 config_file="${CONFIG_FILE:-$script_dir/config.env}"
-if [ -z "${FTP_HOST:-}" ] && [ -f "$config_file" ]; then
+if [ -f "$config_file" ]; then
   echo "loading config: $config_file"
   set -a; . "$config_file"; set +a
 fi
@@ -44,11 +44,13 @@ fi
 : "${BUCKET:?set BUCKET}"
 : "${PREFIX:=}"
 
-: "${TRANSFERS:=8}"
-: "${CHECKERS:=8}"
+: "${TRANSFERS:=16}"
+: "${CHECKERS:=16}"
 : "${FTP_CONCURRENCY:=0}"   # 0 = unlimited; else MUST exceed TRANSFERS+CHECKERS
 : "${S3_CHUNK_SIZE:=64M}"
-: "${S3_CONCURRENCY:=4}"
+: "${S3_CONCURRENCY:=8}"
+: "${BUFFER_SIZE:=32M}"          # per-transfer read-ahead buffer
+: "${ORDER_BY:=modtime,desc}"    # transfer NEWEST files first
 
 # rclone's FTP backend opens one connection per transfer AND per checker. If the
 # connection cap (FTP_CONCURRENCY) is <= transfers+checkers, checkers grab every
@@ -117,6 +119,9 @@ export RCLONE_CONFIG_MINIO_REGION="$MINIO_REGION"
 args=(
   --transfers "$TRANSFERS"
   --checkers "$CHECKERS"
+  --order-by "$ORDER_BY"
+  --buffer-size "$BUFFER_SIZE"
+  --fast-list
   --size-only
   --s3-chunk-size "$S3_CHUNK_SIZE"
   --s3-upload-concurrency "$S3_CONCURRENCY"

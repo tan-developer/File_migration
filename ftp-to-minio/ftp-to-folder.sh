@@ -17,7 +17,9 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 config_file="${CONFIG_FILE:-$script_dir/config.env}"
-if [ -z "${FTP_HOST:-}" ] && [ -f "$config_file" ]; then
+# Always load config.env (authoritative). Avoids stale exported vars from an
+# earlier `source` masking newly-added keys. Override file with CONFIG_FILE=.
+if [ -f "$config_file" ]; then
   echo "loading config: $config_file"
   set -a; . "$config_file"; set +a
 fi
@@ -30,9 +32,11 @@ fi
 : "${FTP_TLS:=false}"
 : "${DEST_DIR:?set DEST_DIR (local folder to download into)}"
 
-: "${TRANSFERS:=8}"
-: "${CHECKERS:=8}"
+: "${TRANSFERS:=16}"
+: "${CHECKERS:=16}"
 : "${FTP_CONCURRENCY:=0}"   # 0 = unlimited; else MUST exceed TRANSFERS+CHECKERS
+: "${BUFFER_SIZE:=32M}"          # per-transfer read-ahead buffer
+: "${ORDER_BY:=modtime,desc}"    # download NEWEST files first
 
 # Avoid rclone FTP deadlock (see sync.sh): connections must exceed transfers+checkers.
 if [ "$FTP_CONCURRENCY" != "0" ]; then
@@ -77,6 +81,8 @@ export RCLONE_CONFIG_FTP_CONCURRENCY="$FTP_CONCURRENCY"
 args=(
   --transfers "$TRANSFERS"
   --checkers "$CHECKERS"
+  --order-by "$ORDER_BY"
+  --buffer-size "$BUFFER_SIZE"
   --size-only
   --retries 3
   --low-level-retries 20
